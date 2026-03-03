@@ -4,6 +4,17 @@
 
 プロジェクト
 
+## API制限事項
+
+freee工数管理 API ではプロジェクトの更新・削除エンドポイントは提供されていません。
+
+| 操作 | API | 備考 |
+|------|-----|------|
+| 作成 | POST /projects | 可能 |
+| 取得 | GET /projects, GET /projects/{id} | 可能 |
+| 更新 | PUT/PATCH /projects/{id} | 非対応 → Web UIで操作 |
+| 削除 | DELETE /projects/{id} | 非対応 → Web UIで操作 |
+
 ## エンドポイント一覧
 
 ### GET /projects

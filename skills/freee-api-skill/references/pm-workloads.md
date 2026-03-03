@@ -4,6 +4,18 @@
 
 工数実績
 
+## API制限事項
+
+freee工数管理 API では工数の更新・削除エンドポイントは提供されていません。
+
+| 操作 | API | 備考 |
+|------|-----|------|
+| 登録 | POST /workloads | 可能 |
+| 取得（詳細） | GET /workloads | 可能 |
+| 取得（サマリ） | GET /workload_summaries | 可能 |
+| 更新 | PUT/PATCH /workloads/{id} | 非対応 → Web UIで操作 |
+| 削除 | DELETE /workloads/{id} | 非対応 → Web UIで操作 |
+
 ## エンドポイント一覧
 
 ### POST /workloads
