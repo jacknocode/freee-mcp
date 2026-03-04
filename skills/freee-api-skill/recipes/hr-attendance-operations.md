@@ -94,6 +94,19 @@ freee_api_get {
 
 レスポンスの `companies[].employee_id` が自分の従業員IDです。
 
+## クロスサービス連携
+
+### 工数管理（PM）との連携
+
+勤怠データは工数管理の工数登録の入力データとして使用できる。
+出勤日・勤務時間を基に、工数の配分計画を立てて登録する。
+
+詳細: `recipes/pm-workload-registration.md`
+
+注意: HR API の employee_id と PM API の person_id は異なるID体系。
+- HR: `GET /api/v1/users/me` → `companies[].employee_id`
+- PM: `GET /users/me`（service: "pm"）→ `companies[].person_me.id`
+
 ## リファレンス
 
 - `references/hr-attendances.md` - 勤怠API詳細
