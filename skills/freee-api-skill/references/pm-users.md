@@ -25,8 +25,19 @@
     - role (任意): string - 事業所におけるロール 例: `company_admin`
     - external_cid (任意): string - 事業所番号(半角英数字10桁) 例: `1234567890`
     - person_me (任意): object - ログインユーザー情報
+      - id: integer - PM API で使用する person_id。manager_ids[] や person_ids[] パラメータに使用する
+      - name: string - 従業員氏名
+      - email: string - メールアドレス
+      - role: string - ロール（admin: システム管理者, manager: プロジェクトマネージャー, member: メンバー）
+      - status: string - ステータス（accepted 等）
 
+ロールと API アクセス権限:
+- system_admin: 全エンドポイントにアクセス可能（GET /teams, GET /people を含む）
+- manager: プロジェクト管理系（GET /projects, POST /workloads 等）にアクセス可能
+- member: 基本的な工数登録・閲覧
 
+注意: person_me.id（PM の person_id）と HR API の employee_id は異なる値。
+HR API の employee_id は `GET /api/v1/users/me`（service: "hr"）で取得する。
 
 ## 参考情報
 

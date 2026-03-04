@@ -246,6 +246,89 @@ freee_api_get {
    - 消耗品費: 文房具、備品
 3. 不明な場合は経理部門に確認
 
+## PM（工数管理）関連
+
+### 問題: GET /teams や GET /people で 401 エラー
+
+原因: GET /teams および GET /people はシステム管理者ロールが必要。
+プロジェクトマネージャーやメンバーロールではアクセスできない。
+
+freee工数管理のデフォルトロール:
+- メンバー: 基本的な工数登録・閲覧
+- プロジェクトマネージャー: プロジェクト管理、GET /projects 等は利用可能
+- システム管理者: 全エンドポイントにアクセス可能（GET /teams, GET /people を含む）
+
+解決方法:
+
+- `GET /users/me` のレスポンスで `companies[].person_me.role` を確認し、現在のロールを把握する
+- システム管理者でない場合、これらのエンドポイントは利用できない
+- システム管理者への昇格が必要な場合は、既存のシステム管理者に依頼する
+
+注意: GET /users/me や GET /projects はプロジェクトマネージャーでも動作するが、
+GET /teams や GET /people はシステム管理者ロールが必要。
+
+### 問題: GET /projects のレスポンスが大きすぎる
+
+原因: プロジェクトデータにはメンバー一覧、タグ、発注先情報など多くの情報が含まれるため、
+プロジェクト数が多い事業所では数MBに達することがある
+
+解決方法:
+
+- `operational_status: "in_progress"` で運用中のみに絞る
+- `limit` と `offset` でページネーション
+- `manager_ids[]` でマネージャーが自分のプロジェクトのみ取得
+
+### 問題: 工数を誤って登録してしまった
+
+原因: POST /workloads は成功すると取り消せない（API に更新・削除エンドポイントがない）
+
+解決方法:
+
+Web UI (https://pm.freee.co.jp) の工数一覧画面から修正・削除する。
+API では対応できないため、登録前に必ず内容を確認すること。
+
+### 問題: 同じ日・同じプロジェクトに工数が二重登録された
+
+原因: POST /workloads には重複チェックがなく、同じ条件で複数回 POST すると加算される
+
+解決方法:
+
+Web UI (https://pm.freee.co.jp) で余分な工数を削除する。
+再実行する前に GET /workloads で現在の登録状況を確認すること。
+
+### 問題: work_record_summaries で期待と異なる月のデータが返る
+
+原因: work_record_summaries の year/month パラメータは「給与支払い月」を指定する。
+翌月払いの場合、実際の勤怠月と給与支払い月がずれる。
+
+解決方法:
+
+- レスポンスの `start_date` と `end_date` を確認し、実際にどの期間のデータかを検証
+- ずれている場合は month をずらして再取得
+- 確実な方法: 個別の日付で `GET /employees/{id}/work_records/{date}` を使用する
+
+### 問題: プロジェクトにメンバーでフィルタできない
+
+原因: GET /projects には `member_ids` パラメータが存在しない。
+`manager_ids[]` のみがフィルタパラメータとして提供されている。
+
+解決方法:
+
+1. `GET /projects?operational_status=in_progress` で取得
+2. レスポンスの `projects[].members[].person_id` をクライアント側でフィルタ
+3. 自分の person_id は `GET /users/me` で事前に取得しておく
+
+### 問題: PM の person_id と HR の employee_id の対応がわからない
+
+原因: PM API と HR API では異なるID体系を使用する
+
+解決方法:
+
+- PM: `GET /users/me` → `companies[].person_me.id` が person_id
+- HR: `GET /api/v1/users/me` → `companies[].employee_id` が employee_id
+- PM の `GET /people` レスポンスには `payroll_employee_id` フィールドがあり、
+  これが HR 側の employee_id に対応する
+
 ## パフォーマンス関連
 
 ### 問題: レスポンスが遅い
@@ -259,6 +342,15 @@ freee_api_get {
 
 - `limit` パラメータで取得件数を制限
 - 必要なデータのみ取得するよう条件を絞る
+
+### 問題: PM API のレスポンスが大きい
+
+原因: GET /projects はプロジェクトあたりのデータ量が多い（メンバー、タグ情報を含む）
+
+解決方法:
+
+- `operational_status` で絞り込む
+- ページネーション（`limit` + `offset`）で分割取得
 
 ## よくある質問
 
@@ -282,6 +374,21 @@ A: 以下を考慮してください:
 - 同じ月の交通費: まとめることが多い
 - 異なる種類の経費: 別々に申請することを推奨
 - 会社の方針に従ってください
+
+### Q: 工数の登録を修正・削除できますか？
+
+A: API 経由では修正・削除できません。Web UI (https://pm.freee.co.jp) から操作してください。
+
+### Q: 勤怠データと工数を連動させるには？
+
+A: HR API の勤怠記録で出勤日と勤務時間を取得し、それを基に PM API で工数を登録します。
+詳細な手順は `recipes/pm-workload-registration.md` を参照してください。
+
+### Q: 工数をまとめて登録できますか？
+
+A: POST /workloads に一括登録エンドポイントはありませんが、
+複数の POST リクエストを並列で実行することで効率的に登録できます。
+ただし重複チェックがないため、再実行には注意が必要です。
 
 ## サポートが必要な場合
 
