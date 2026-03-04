@@ -22,7 +22,7 @@ flowchart TD
     K --> L[7. サマリで登録結果を検証]
 ```
 
-## 前提
+## 概要
 
 - PM API: `service: "pm"`、HR API: `service: "hr"` の2サービスを横断して使用
 - 工数は登録後に API で修正・削除できない（Web UIのみ）。登録前の確認が重要
@@ -79,8 +79,6 @@ freee_api_get {
 
 - `companies[].employee_id` → HR API の employee_id
 
-注意: PM の person_id と HR の employee_id は異なる値。混同しないこと。
-
 ### Step 3: アサイン済みプロジェクトの特定
 
 マネージャーとして管理するプロジェクト（`manager_ids[]` で絞り込み可能）:
@@ -97,7 +95,7 @@ freee_api_get {
 }
 ```
 
-メンバーとしてアサインされたプロジェクト（フィルタパラメータなし。クライアント側でフィルタ）:
+メンバーとしてアサインされたプロジェクト（クライアント側でフィルタ）:
 
 ```
 freee_api_get {
@@ -113,10 +111,6 @@ freee_api_get {
 ```
 
 取得後、`projects[].members[].person_id` に自分の person_id が含まれるプロジェクトを抽出する。
-
-注意: GET /projects はプロジェクトあたり数KBのデータを返す（メンバー一覧、タグ、発注先情報を含む）。
-プロジェクト数が多い事業所では limit=100 でも数MBに達することがある。
-必ず `operational_status: "in_progress"` で絞り込み、全件取得が必要な場合は offset でページネーション。
 
 ### Step 4: 対象期間の既存工数確認
 
@@ -157,12 +151,6 @@ freee_api_get {
 | paid_holiday | 有給取得日数（0, 0.5, 1） | 1 の場合はスキップ |
 | clock_in_at / clock_out_at | 出退勤時刻 | null の場合は未出勤 |
 
-工数を登録すべき日の条件:
-- day_pattern が "normal_day"
-- is_absence が false
-- clock_in_at が null でない（実際に出勤した日）
-- paid_holiday が 1 でない（有給全休でない）
-
 月次サマリでの概要確認（補助的に使用）:
 
 ```
@@ -174,11 +162,6 @@ freee_api_get {
   }
 }
 ```
-
-注意: work_record_summaries の year/month は給与支払い月を指定する。
-翌月払いの企業では実際の勤怠月とずれることがある。
-レスポンスの `start_date` と `end_date` で実際の集計期間を確認すること。
-日付がずれる場合は日次取得を使用する。
 
 ### Step 6: 工数の登録
 
@@ -195,10 +178,6 @@ freee_api_post {
   }
 }
 ```
-
-- 複数の POST を並列実行しても問題ない
-- 1日に複数プロジェクトがある場合はプロジェクトごとに POST する
-- person_id を省略するとログインユーザーに登録される
 
 工数タグ付きの登録:
 
@@ -237,21 +216,25 @@ freee_api_get {
 
 Web UI での確認: https://pm.freee.co.jp
 
-## 運用スタイル別ガイド
+## Tips
 
-### 日次運用
+- PM の person_id と HR の employee_id は異なる値。混同しないこと
+- minutes の単位: 1時間=60分、半日=240分、1日=480分（一般的な所定労働時間の場合）
+- 祝日判定: day_pattern が "prescribed_holiday" の日は祝日や所定休日
+- 半休の日: paid_holiday が 0.5 の場合、normal_work_mins が半日分になる。工数もそれに合わせる
+- 並列 POST: 複数の POST /workloads を同時に実行しても問題ない
+- 前月コピー: 毎月ほぼ同じ配分の場合、前月データを取得してテンプレートにすると効率的
+- 再実行前に必ず GET /workloads で現在の登録状況を確認する
 
-毎日その日の工数を登録する。最もリアルタイムで正確。
+### 運用スタイル別ガイド
 
+日次運用（毎日その日の工数を登録）:
 1. 当日の勤怠を確認（Step 5）
 2. normal_work_mins に合わせてプロジェクトごとに POST
 
-### 週次運用
-
-週末や週明けにまとめて1週間分を登録する。
-
+週次運用（週末や週明けにまとめて1週間分を登録）:
 1. 対象週の勤怠を取得（5営業日分を並列取得可能）
-2. 配分計画をテーブル形式で作成
+2. 配分計画をテーブル形式で作成してユーザーに確認
 
 ```
 | 日付 | プロジェクトA | プロジェクトB | 合計 |
@@ -261,49 +244,20 @@ Web UI での確認: https://pm.freee.co.jp
 | ...  | ... | ... | ... |
 ```
 
-3. ユーザーの確認後、1週間分を登録（並列実行可能）
+3. 確認後、1週間分を一括登録（並列実行可能）
 
-### 月次運用
-
-月末や翌月初にまとめて1ヶ月分を登録する。効率的だが、記憶が曖昧になりやすい。
-
+月次運用（月末や翌月初にまとめて1ヶ月分を登録）:
 1. 全営業日の勤怠を取得
-2. 前月の工数パターンを参照（任意）
+2. 前月の工数パターンを参照し、デフォルト配分を提案。差分のみユーザーに確認
+3. 週単位で分割して登録 → 各週の登録後にサマリで中間確認
 
-```
-freee_api_get {
-  "service": "pm",
-  "path": "/workloads",
-  "query": {
-    "company_id": 12345,
-    "year_month": "2026-02"
-  }
-}
-```
+## 注意点
 
-3. 前月パターンを基にデフォルト配分を提案し、差分のみユーザーに確認
-4. 週単位で分割して登録（エラー時の影響を限定するため）
-5. 各週の登録後にサマリで中間確認
-
-## Tips
-
-- 祝日判定: day_pattern が "prescribed_holiday" の日は祝日や所定休日
-- 半休の日: paid_holiday が 0.5 の場合、normal_work_mins が半日分になる。工数もそれに合わせる
-- 並列 POST: 複数の POST /workloads を同時に実行しても問題ない
-- minutes の単位: 1時間=60分、半日=240分、1日=480分（一般的な所定労働時間の場合）
-- 前月コピー: 毎月ほぼ同じ配分の場合、前月データを取得してテンプレートにすると効率的
-- 月次でまとめる場合: 週ごとに登録 → 確認を繰り返すことで誤りに早く気づける
-- 再実行前に必ず GET /workloads で現在の登録状況を確認する
-
-## エラー対応
-
-| 状況 | 対処 |
-|------|------|
-| POST /workloads で 400 | project_id, date, minutes を確認。minutes は1以上の整数 |
-| 重複登録してしまった | Web UI (https://pm.freee.co.jp) で修正・削除 |
-| 勤怠データが取得できない | employee_id を確認。HR API の /api/v1/users/me で再取得 |
-| work_record_summaries の月がずれる | 給与支払い月のオフセットを確認。日次取得に切り替える |
-| GET /projects のレスポンスが巨大 | operational_status で絞り込み、offset でページネーション |
+- work_record_summaries の year/month は給与支払い月を指定する。翌月払いの企業では実際の勤怠月とずれることがある。レスポンスの `start_date` と `end_date` で実際の集計期間を確認すること。日付がずれる場合は日次取得を使用する
+- GET /projects はプロジェクトあたり数KBのデータを返す（メンバー一覧、タグ、発注先情報を含む）。プロジェクト数が多い事業所では limit=100 でも数MBに達するため、必ず `operational_status: "in_progress"` で絞り込む
+- 重複登録してしまった場合は Web UI（https://pm.freee.co.jp）で修正・削除する
+- POST /workloads で 400 が返る場合: project_id, date, minutes を確認。minutes は1以上の整数
+- GET /projects のレスポンスが巨大な場合: operational_status で絞り込み、offset でページネーション
 
 ## リファレンス
 

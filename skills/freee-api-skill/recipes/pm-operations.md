@@ -2,7 +2,7 @@
 
 freee工数管理 API を使ったよくある操作のサンプルと Tips。
 
-## 前提
+## 概要
 
 - `service: "pm"` を指定する
 - ベースURL: `https://api.freee.co.jp/pm`
@@ -52,10 +52,6 @@ freee_api_get {
 ```
 
 `operational_status` の選択肢: `planning`, `awaiting_approval`, `in_progress`, `rejected`, `done`
-
-注意: GET /projects のレスポンスは1プロジェクトあたり数KBになることがある（メンバー一覧、タグ、発注先/発注元情報を含むため）。
-プロジェクト数が多い事業所（数百件以上）では、limit=100 でも数MBに達する可能性がある。
-必ず `operational_status` で絞り込み、必要に応じてページネーションを使用すること。
 
 GET /projects には `member_ids` パラメータが存在しない。
 自分がアサインされているプロジェクトを探すには、レスポンスの `projects[].members[].person_id` を確認して自分の person_id が含まれるものを抽出する。
@@ -140,13 +136,6 @@ freee_api_post {
   }
 }
 ```
-
-注意事項:
-- 工数は API 経由での更新・削除ができない（Web UI のみ）
-- 同じ日・同じプロジェクトに複数回 POST すると加算される（重複チェックなし）
-- まとめて登録する場合は週単位で分割し、段階的に登録することを推奨
-- 登録前に必ずユーザーに確認を取ること
-- 誤って登録した場合は https://pm.freee.co.jp の工数一覧画面から修正・削除する
 
 ### 工数実績の確認
 
@@ -250,44 +239,6 @@ freee_api_get {
 
 プロジェクトの発注元（`orderer_ids`）・発注先（`contractor_ids`）に使用する取引先IDを確認します。
 
-## API非対応操作（Web UIで実施）
-
-freee工数管理 API では以下の操作は提供されていません。Web UIから手動で操作してください。
-
-| リソース | 非対応操作 |
-|---------|-----------|
-| プロジェクト | 更新（名前/期間/メンバー変更）、削除、ステータス変更 |
-| 工数 | 修正、削除 |
-| チーム | 作成、更新、削除 |
-| 従業員 | 作成、更新、削除（freee人事労務APIを使用） |
-| 単価マスタ | 作成、更新、削除 |
-| 取引先 | 作成、更新、削除 |
-
-これらの操作をリクエストされた場合は、Web UI（https://pm.freee.co.jp）で操作するよう案内してください。
-
-特に工数（workloads）の修正・削除は頻繁に必要になる操作であるため、登録前に内容を十分に確認すること。
-
-## よくある操作フロー
-
-### 工数登録フロー
-
-1. `GET /users/me` → `company_id` を確認
-2. `GET /projects` → アサインされているプロジェクト一覧を確認し `project_id` を取得
-3. `POST /workloads` → 工数を登録
-
-### プロジェクト作成フロー
-
-1. `GET /users/me` → `company_id` を確認
-2. `GET /people` → アサインする従業員の `person_id` を確認
-3. `GET /unit_costs` → 使用する単価マスタの `unit_cost_id` を確認
-4. `GET /partners` → 発注元・発注先の `partner_id` を確認（任意）
-5. `POST /projects` → プロジェクトを作成
-
-### チーム別工数集計フロー
-
-1. `GET /teams` → チームIDを確認
-2. `GET /workload_summaries` with `employees_scope: "team"`, `team_ids[]: [チームID]` → チームの工数サマリを取得
-
 ## Tips
 
 - `year_month` は `YYYY-MM` 形式（例: `2026-03`）
@@ -301,19 +252,36 @@ freee工数管理 API では以下の操作は提供されていません。Web 
 - GET /projects のレスポンスが大きい場合は `offset` でページネーション。`total_count` で総数を確認
 - 工数登録の並列実行: 複数の POST /workloads を同時に実行しても問題ない
 - person_id と employee_id は異なる: PM API では person_id、HR API では employee_id を使用する
-- GET /people や GET /teams で 401 が返る場合、システム管理者ロールが必要。プロジェクトマネージャーやメンバーではアクセスできない
+- GET /people や GET /teams で 401 が返る場合、システム管理者ロールが必要
 
-## エラー対応
+### よくある操作フロー
 
-| ステータス | 原因 | 対処 |
-|-----------|------|------|
-| 400 | リクエスト不正 | パラメータを確認（必須項目、型、値の範囲） |
-| 400 (POST /workloads) | minutes が 0 以下または未指定 | minutes は1以上の整数を指定 |
-| 401 | 認証エラー | `freee_auth_status` で認証状態確認 |
-| 401 (GET /teams, /people) | システム管理者ロールが必要 | `GET /users/me` で role を確認。システム管理者に昇格が必要 |
-| 402 | 有料プランが必要 | freee工数管理のプランを確認 |
-| 403 | 権限不足またはレート制限 | ロールを確認。制限の場合は10分待つ |
-| 404 | リソースが見つからない | IDを確認 |
+工数登録:
+1. `GET /users/me` → `company_id` を確認
+2. `GET /projects` → アサインされているプロジェクト一覧を確認し `project_id` を取得
+3. `POST /workloads` → 工数を登録
+
+プロジェクト作成:
+1. `GET /users/me` → `company_id` を確認
+2. `GET /people` → アサインする従業員の `person_id` を確認
+3. `GET /unit_costs` → 使用する単価マスタの `unit_cost_id` を確認
+4. `GET /partners` → 発注元・発注先の `partner_id` を確認（任意）
+5. `POST /projects` → プロジェクトを作成
+
+チーム別工数集計:
+1. `GET /teams` → チームIDを確認
+2. `GET /workload_summaries` with `employees_scope: "team"`, `team_ids[]: [チームID]` → チームの工数サマリを取得
+
+## 注意点
+
+- GET /projects のレスポンスは1プロジェクトあたり数KBになることがある（メンバー一覧、タグ、発注先/発注元情報を含む）。プロジェクト数が多い事業所では limit=100 でも数MBに達する可能性があるため、必ず `operational_status` で絞り込むこと
+- 工数は API 経由での更新・削除ができない（Web UI のみ）。まとめて登録する場合は週単位で分割し、登録前に必ずユーザーに確認を取ること
+- 誤って工数を登録した場合は https://pm.freee.co.jp の工数一覧画面から修正・削除する
+- 同じ日・同じプロジェクトに複数回 POST すると加算される（重複チェックなし）
+- プロジェクト更新・削除・ステータス変更、チームの作成・更新・削除、単価マスタや取引先の操作は API 非対応。Web UI（https://pm.freee.co.jp）で実施する
+- 401 (GET /teams, /people): システム管理者ロールが必要。`GET /users/me` で role を確認
+- 402: freee工数管理の有料プランが必要
+- 403: 権限不足またはレート制限。制限の場合は10分待つ
 
 詳細: `recipes/troubleshooting.md` 参照
 
