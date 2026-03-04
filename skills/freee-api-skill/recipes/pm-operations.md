@@ -9,215 +9,243 @@ freee工数管理 API を使ったよくある操作のサンプルと Tips。
 - パス形式: `/projects`, `/workloads` など（`/api/1/` プレフィックスは不要）
 - `company_id` は `GET /users/me` で取得した値を使用
 
-## 1. ログインユーザーと事業所IDの確認
+## 利用可能なパス
+
+| パス | 説明 |
+|------|------|
+| `/users/me` | ログインユーザー情報（company_id・person_id 取得） |
+| `/projects` | プロジェクト一覧・作成 |
+| `/projects/{id}` | プロジェクト詳細 |
+| `/workloads` | 工数一覧・登録 |
+| `/workload_summaries` | 工数サマリ |
+| `/teams` | チーム一覧 |
+| `/people` | 従業員一覧 |
+| `/unit_costs` | 単価マスタ |
+| `/partners` | 取引先一覧 |
+
+## 使用例
+
+### ログインユーザーと事業所IDの確認
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/users/me"
+freee_api_get {
+  "service": "pm",
+  "path": "/users/me"
+}
 ```
 
 レスポンスの `companies[].id` が各APIで必要な `company_id` です。
 
-## 2. プロジェクト一覧の取得
+### プロジェクト一覧の取得
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/projects"
-  query:
-    company_id: 12345
-    operational_status: "in_progress"   # 運用中のみ絞り込み（省略可）
-    limit: 50
-    offset: 0
+freee_api_get {
+  "service": "pm",
+  "path": "/projects",
+  "query": {
+    "company_id": 12345,
+    "operational_status": "in_progress",
+    "limit": 50,
+    "offset": 0
+  }
+}
 ```
 
 `operational_status` の選択肢: `planning`, `awaiting_approval`, `in_progress`, `rejected`, `done`
 
-### レスポンスサイズに関する注意
-
-GET /projects のレスポンスは1プロジェクトあたり数KBになることがある
-（メンバー一覧、タグ、発注先/発注元情報を含むため）。
+注意: GET /projects のレスポンスは1プロジェクトあたり数KBになることがある（メンバー一覧、タグ、発注先/発注元情報を含むため）。
 プロジェクト数が多い事業所（数百件以上）では、limit=100 でも数MBに達する可能性がある。
 必ず `operational_status` で絞り込み、必要に応じてページネーションを使用すること。
 
-### メンバーによるプロジェクト絞り込み
-
 GET /projects には `member_ids` パラメータが存在しない。
-自分がアサインされているプロジェクトを探すには:
-
-1. `operational_status: "in_progress"` で取得
-2. レスポンスの `projects[].members[].person_id` を確認
-3. 自分の person_id が含まれるものを抽出
-
+自分がアサインされているプロジェクトを探すには、レスポンスの `projects[].members[].person_id` を確認して自分の person_id が含まれるものを抽出する。
 `manager_ids[]` は指定可能なので、マネージャーの場合はそちらを使用する。
 
-## 3. プロジェクト詳細の取得
+### プロジェクト詳細の取得
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/projects/601"    # {id} にプロジェクトIDを指定
-  query:
-    company_id: 12345
+freee_api_get {
+  "service": "pm",
+  "path": "/projects/601",
+  "query": {
+    "company_id": 12345
+  }
+}
 ```
 
 詳細には収支管理情報（`balance`）が含まれます。
 
-## 4. プロジェクトの作成
+### プロジェクトの作成
 
 ```
-freee_api_post
-  service: "pm"
-  path: "/projects"
-  body:
-    company_id: 12345
-    name: "新規プロジェクト"
-    code: "PROJ-001"
-    from_date: "2026-04-01"
-    thru_date: "2026-09-30"
-    pm_budgets_cost: 500000
-    description: "プロジェクトの概要説明"
-    publish_to_employee: true
-    color_id: 3               # 3=green
-    manager_person_id: 10     # 省略時はログインユーザ
-    members:
-      - person_id: 11
-        unit_cost_id: 3
-        budgets_cost: 3000
-      - person_id: 12
-        unit_cost_id: 3
-        budgets_cost: 2500
+freee_api_post {
+  "service": "pm",
+  "path": "/projects",
+  "body": {
+    "company_id": 12345,
+    "name": "新規プロジェクト",
+    "code": "PROJ-001",
+    "from_date": "2026-04-01",
+    "thru_date": "2026-09-30",
+    "pm_budgets_cost": 500000,
+    "description": "プロジェクトの概要説明",
+    "publish_to_employee": true,
+    "color_id": 3,
+    "manager_person_id": 10,
+    "members": [
+      { "person_id": 11, "unit_cost_id": 3, "budgets_cost": 3000 },
+      { "person_id": 12, "unit_cost_id": 3, "budgets_cost": 2500 }
+    ]
+  }
+}
 ```
 
 色ID: `1=orange, 2=blue_green, 3=green, 4=blue, 5=purple, 6=red, 7=yellow`
 
-## 5. 工数の登録
+`manager_person_id` を省略するとログインユーザーが担当者になる。
+
+### 工数の登録
 
 ```
-freee_api_post
-  service: "pm"
-  path: "/workloads"
-  body:
-    company_id: 12345
-    project_id: 601
-    date: "2026-03-03"
-    minutes: 120              # 2時間 = 120分
-    memo: "機能実装"
-    # person_id は省略するとログインユーザに登録
+freee_api_post {
+  "service": "pm",
+  "path": "/workloads",
+  "body": {
+    "company_id": 12345,
+    "project_id": 601,
+    "date": "2026-03-03",
+    "minutes": 120,
+    "memo": "機能実装"
+  }
+}
 ```
+
+`person_id` を省略するとログインユーザーに登録される。
 
 工数タグが必要な場合:
 
 ```
-freee_api_post
-  service: "pm"
-  path: "/workloads"
-  body:
-    company_id: 12345
-    project_id: 601
-    date: "2026-03-03"
-    minutes: 60
-    memo: "コードレビュー"
-    workload_tags:
-      - tag_group_id: 11
-        tag_id: 12
+freee_api_post {
+  "service": "pm",
+  "path": "/workloads",
+  "body": {
+    "company_id": 12345,
+    "project_id": 601,
+    "date": "2026-03-03",
+    "minutes": 60,
+    "memo": "コードレビュー",
+    "workload_tags": [
+      { "tag_group_id": 11, "tag_id": 12 }
+    ]
+  }
+}
 ```
 
-注意: プロジェクトに工数タグが必須設定されている場合は `workload_tags` が必要です。
-
-### 工数登録の注意事項
-
+注意事項:
 - 工数は API 経由での更新・削除ができない（Web UI のみ）
 - 同じ日・同じプロジェクトに複数回 POST すると加算される（重複チェックなし）
 - まとめて登録する場合は週単位で分割し、段階的に登録することを推奨
 - 登録前に必ずユーザーに確認を取ること
 - 誤って登録した場合は https://pm.freee.co.jp の工数一覧画面から修正・削除する
 
-## 6. 工数実績の確認（詳細）
+### 工数実績の確認
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/workloads"
-  query:
-    company_id: 12345
-    year_month: "2026-03"
-    employees_scope: "employee"
-    person_ids[]: [10, 11]    # 特定メンバーを指定
+freee_api_get {
+  "service": "pm",
+  "path": "/workloads",
+  "query": {
+    "company_id": 12345,
+    "year_month": "2026-03",
+    "employees_scope": "employee",
+    "person_ids[]": [10, 11]
+  }
+}
 ```
 
 全員の工数を取得する場合:
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/workloads"
-  query:
-    company_id: 12345
-    year_month: "2026-03"
-    employees_scope: "all"
+freee_api_get {
+  "service": "pm",
+  "path": "/workloads",
+  "query": {
+    "company_id": 12345,
+    "year_month": "2026-03",
+    "employees_scope": "all"
+  }
+}
 ```
 
-## 7. 工数サマリの確認
+### 工数サマリの確認
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/workload_summaries"
-  query:
-    company_id: 12345
-    year_month: "2026-03"
-    employees_scope: "all"
+freee_api_get {
+  "service": "pm",
+  "path": "/workload_summaries",
+  "query": {
+    "company_id": 12345,
+    "year_month": "2026-03",
+    "employees_scope": "all"
+  }
+}
 ```
 
 サマリには `minutes`（総工数）と `productive_minutes`（生産時間）が含まれます。
 
-## 8. チーム一覧の取得
+### チーム一覧の取得
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/teams"
-  query:
-    company_id: 12345
+freee_api_get {
+  "service": "pm",
+  "path": "/teams",
+  "query": {
+    "company_id": 12345
+  }
+}
 ```
 
 チームメンバーとリーダー情報も含まれます。
 
-## 9. 従業員一覧の取得
+### 従業員一覧の取得
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/people"
-  query:
-    company_id: 12345
-    status: "accepted"    # 利用中のみ
+freee_api_get {
+  "service": "pm",
+  "path": "/people",
+  "query": {
+    "company_id": 12345,
+    "status": "accepted"
+  }
+}
 ```
 
 プロジェクトのメンバーアサイン時に `person_id` を確認するために使用します。
 
-## 10. 単価マスタの確認
+### 単価マスタの確認
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/unit_costs"
-  query:
-    company_id: 12345
+freee_api_get {
+  "service": "pm",
+  "path": "/unit_costs",
+  "query": {
+    "company_id": 12345
+  }
+}
 ```
 
 プロジェクト作成時の `members[].unit_cost_id` に使用する単価ID一覧を取得できます。
 
-## 11. 取引先一覧の取得
+### 取引先一覧の取得
 
 ```
-freee_api_get
-  service: "pm"
-  path: "/partners"
-  query:
-    company_id: 12345
+freee_api_get {
+  "service": "pm",
+  "path": "/partners",
+  "query": {
+    "company_id": 12345
+  }
+}
 ```
 
 プロジェクトの発注元（`orderer_ids`）・発注先（`contractor_ids`）に使用する取引先IDを確認します。
@@ -237,20 +265,7 @@ freee工数管理 API では以下の操作は提供されていません。Web 
 
 これらの操作をリクエストされた場合は、Web UI（https://pm.freee.co.jp）で操作するよう案内してください。
 
-特に工数（workloads）の修正・削除は頻繁に必要になる操作であるため、
-登録前に内容を十分に確認すること。
-
-## 12. 工数登録（勤怠データ連携）
-
-人事労務APIの勤怠データを活用して工数を登録できる。
-日次・週次・月次いずれの運用にも対応。詳細な手順は `recipes/pm-workload-registration.md` を参照。
-
-概要:
-1. HR API で出勤日と勤務時間を取得
-2. PM API でプロジェクト一覧を確認
-3. 配分計画を作成してユーザーに確認
-4. 工数を登録
-5. サマリで検証
+特に工数（workloads）の修正・削除は頻繁に必要になる操作であるため、登録前に内容を十分に確認すること。
 
 ## よくある操作フロー
 
@@ -293,11 +308,21 @@ freee工数管理 API では以下の操作は提供されていません。Web 
 | ステータス | 原因 | 対処 |
 |-----------|------|------|
 | 400 | リクエスト不正 | パラメータを確認（必須項目、型、値の範囲） |
+| 400 (POST /workloads) | minutes が 0 以下または未指定 | minutes は1以上の整数を指定 |
 | 401 | 認証エラー | `freee_auth_status` で認証状態確認 |
+| 401 (GET /teams, /people) | システム管理者ロールが必要 | `GET /users/me` で role を確認。システム管理者に昇格が必要 |
 | 402 | 有料プランが必要 | freee工数管理のプランを確認 |
 | 403 | 権限不足またはレート制限 | ロールを確認。制限の場合は10分待つ |
 | 404 | リソースが見つからない | IDを確認 |
-| 400 (POST /workloads) | minutes が 0 以下または未指定 | minutes は1以上の整数を指定 |
-| 401 (GET /teams, /people) | システム管理者ロールが必要 | `GET /users/me` で role を確認。システム管理者に昇格が必要 |
 
 詳細: `recipes/troubleshooting.md` 参照
+
+## リファレンス
+
+- `recipes/pm-workload-registration.md` - 勤怠データ連携による工数登録（日次・週次・月次）
+- `references/pm-workloads.md` - 工数 API 詳細
+- `references/pm-projects.md` - プロジェクト API 詳細
+- `references/pm-people.md` - 従業員 API 詳細
+- `references/pm-teams.md` - チーム API 詳細
+- `references/pm-unit-costs.md` - 単価マスタ API 詳細
+- `references/pm-partners.md` - 取引先 API 詳細
